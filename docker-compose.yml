@@ -1,0 +1,104 @@
+version: '3.8'
+x-common:
+  database:
+    &db-environment
+    # Do not remove the "&db-password" from the end of the line below, it is important
+    # for Panel functionality.
+    MYSQL_PASSWORD: &db-password "${MYSQL_PASSWORD}"
+    MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+  panel:
+    &panel-environment
+    APP_URL: "https://panel.argonaut.network"
+    # A list of valid timezones can be found here: http://php.net/manual/en/timezones.php
+    APP_TIMEZONE: "America/New_York"
+    APP_SERVICE_AUTHOR: "noreply@argonaut.network"
+    # LE_EMAIL: ""
+    
+  mail:
+    &mail-environment
+    MAIL_FROM: "noreply@argonaut.network"
+    MAIL_DRIVER: "smtp"
+    MAIL_HOST: "email-smtp.us-east-2.amazonaws.com"
+    MAIL_PORT: "587"
+    MAIL_USERNAME: "${MAIL_USERNAME}"
+    MAIL_PASSWORD: "${MAIL_PASSWORD}"
+    MAIL_ENCRYPTION: "true"
+
+#
+# ------------------------------------------------------------------------------------------
+# DANGER ZONE BELOW
+#
+# The remainder of this file likely does not need to be changed. Please only make modifications
+# below if you understand what you are doing.
+#
+services:
+  database:
+    image: library/mysql:8.0
+    restart: always
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - "/srv/pterodactyl/database:/var/lib/mysql"
+      - "/usr/share/zoneinfo/America/New_York:/etc/localtime:ro"
+    environment:
+      <<: *db-environment
+      MYSQL_DATABASE: "panel"
+      MYSQL_USER: "pterodactyl"
+    networks:
+      - backend
+    cap_add:
+      - SYS_NICE  # CAP_SYS_NICE
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  cache:
+    image: redis:alpine
+    restart: always
+    networks:
+      - backend
+    volumes:
+      - "/usr/share/zoneinfo/America/New_York:/etc/localtime:ro"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+  panel:
+    image: ghcr.io/pterodactyl/panel:latest
+    restart: always
+    links:
+      - database
+      - cache
+    volumes:
+      - "/srv/pterodactyl/var/:/app/var/"
+      - "/srv/pterodactyl/nginx/:/etc/nginx/conf.d/"
+      - "/srv/pterodactyl/certs/:/etc/letsencrypt/"
+      - "/srv/pterodactyl/logs/:/var/log/"
+      - "/usr/share/zoneinfo/America/New_York:/etc/localtime:ro"
+    environment:
+      <<: *panel-environment
+      <<: *mail-environment
+      DB_PASSWORD: *db-password
+      APP_ENV: "production"
+      APP_ENVIRONMENT_ONLY: "false"
+      CACHE_DRIVER: "redis"
+      SESSION_DRIVER: "redis"
+      QUEUE_DRIVER: "redis"
+      REDIS_HOST: "cache"
+      DB_HOST: "database"
+      # https://www.cloudflare.com/ips-v4
+      TRUSTED_PROXIES: "173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22"
+    networks:
+      - proxy
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ptero-secure.entrypoints=https"
+      - "traefik.http.routers.ptero-secure.rule=Host(`panel.argonaut.network`)"
+      - "traefik.http.routers.ptero-secure.tls=true"
+      - "traefik.docker.network=proxy"
+      
+      - "com.centurylinklabs.watchtower.enable=true"
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  proxy:
+    external: true
+  backend:
