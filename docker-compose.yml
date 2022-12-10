@@ -59,7 +59,7 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
   panel:
-    image: ghcr.io/pterodactyl/panel:latest
+    image: ghcr.io/pterodactyl/panel:v1.10.4
     restart: always
     links:
       - database
